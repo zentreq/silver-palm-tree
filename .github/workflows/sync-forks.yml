@@ -1,0 +1,51 @@
+
+name: Sync GitHub Forks
+
+on:
+  schedule:
+    - cron: '20 1 * * *'
+      timezone: 'Europe/Berlin'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Sync all my forks
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          repos=$(gh api --paginate \
+            'user/repos?affiliation=owner&per_page=100' \
+            --jq '.[] | select(.fork and (.archived | not)) | .full_name') || exit 1
+
+          failed=0
+          count=0
+
+          while IFS= read -r repo; do
+            [ -z "$repo" ] && continue
+            count=$((count + 1))
+
+            echo "Synchronizing $repo"
+
+            if gh repo sync "$repo"; then
+              echo "SUCCESS: $repo"
+            else
+              echo "::warning::Sync failed for $repo"
+              failed=$((failed + 1))
+            fi
+          done <<< "$repos"
+
+          echo "Forks checked: $count"
+          echo "Failures: $failed"
+
+          if [ "$failed" -gt 0 ]; then
+            exit 1
+          fi
